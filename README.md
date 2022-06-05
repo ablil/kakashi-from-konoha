@@ -25,5 +25,5 @@ Create a private twitter list filled with all following of a twitter user and en
 1. Get access token
 2. Run auth server `export FLASK_APP=auth-server; flask run`
 3. Visit http://localhost:5000/login and get access token
-4. Set access token as env variable `export BEARER_TOKEN=<access token>`
+4. Set access token as env variable `export TWITTER_BEARER_TOKEN=<access token>`
 5. Run `python3 app.py -n <listname> <username>`
