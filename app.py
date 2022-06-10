@@ -5,6 +5,7 @@ import argparse
 import os
 import logging
 from time import sleep
+from typing import List
 
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -30,6 +31,9 @@ def initialize():
     if not os.path.exists(os.path.join(os.path.expanduser('~'), '.kakashi/lists')):
         os.makedirs(os.path.join(os.path.expanduser('~'), '.kakashi/lists'))
 
+    if not os.path.exists(os.path.join(os.path.expanduser('~'), '.kakashi/added')):
+        os.makedirs(os.path.join(os.path.expanduser('~'), '.kakashi/added'))
+
 def create_cli():
     parser = argparse.ArgumentParser()
     parser.add_argument("username", nargs=1, help="twitter username")
@@ -53,29 +57,52 @@ class Kakashi:
         self.cachepath = os.path.join(os.path.expanduser('~'), '.kakashi')
 
     def spy_on_user(self, username, listname, description, create=True):
-        list_id = self.create_lst(listname or username, description)
+        list_id: int = self.create_lst(listname or username, description)
         following_ids = self.fetch_user_following(username)
 
         count = 0
         failed = 0
+        added = []
+
+        # loaded already added items from cache
+        cachepath = os.path.join(self.cachepath, 'added', username)
+        if os.path.exists(cachepath):
+            with open(cachepath, 'r') as c:
+                added.extend([int(item.strip()) for item in c.readlines()])
+
 
         logging.info(f"Adding {len(following_ids)} members ...")
-        for following_id in following_ids:
-            sleep(1)
-            try:
-                member = self.add_member(following_id, list_id)
-                if member.errors:
-                    logging.error(f"Failed to add member {following_id}")
+        try:
+            for following_id in following_ids:
+                if following_id not in added:
+                    try:
+                        sleep(1)
+                        member = self.add_member(following_id, list_id)
+                        if member.errors:
+                            logging.error(f"Failed to add member {following_id}")
+                        else:
+                            count += 1
+                            added.append(following_id)
+                    except tweepy.errors.Forbidden:
+                        logging.warning(f"Failed to add member {following_id}, forbidden")
+                        failed += 1
+                        continue
                 else:
-                    count += 1
-            except tweepy.errors.Forbidden:
-                logging.warn(f"Failed to add member {following_id}, forbidden")
-                failed += 1
-                continue
+                    print(f"{following_id} has already been added")
+        except KeyboardInterrupt:
+            cachepath = os.path.join(self.cachepath, 'added', username)
+            logging.info("saved added members to list")
+            with open(cachepath, 'w+') as c:
+                c.write('\n'.join([str(item) for item in added]))
+
+        cachepath = os.path.join(self.cachepath, 'added', username)
+        logging.info("saved added members to list")
+        with open(cachepath, 'w+') as c:
+            c.write('\n'.join([str(item) for item in added]))
 
         logging.info(f"Added {count} / {len(following_ids)} members")
-        logging.warn(f"Failed to add {failed} / {len(following_ids)} members")
-        logging.info(f"Twitter list: https://twitter.com/i/lists/{lst_id or None}")
+        logging.warning(f"Failed to add {failed} / {len(following_ids)} members")
+        logging.info(f"Twitter list: https://twitter.com/i/lists/{list_id}")
         
 
     def fetch_userid(self, username):
@@ -88,7 +115,7 @@ class Kakashi:
 
         return user_id
 
-    def fetch_user_following(self, username):
+    def fetch_user_following(self, username) -> List[int]:
         cachepath = os.path.join(self.cachepath, 'followings', username)
 
         # load from cache
@@ -106,7 +133,7 @@ class Kakashi:
 
         return following_ids
 
-    def create_lst(self, name, description):
+    def create_lst(self, name, description) -> int:
         cachepath = os.path.join(self.cachepath, 'lists', username)
 
         # load from cache
@@ -115,7 +142,7 @@ class Kakashi:
                 data = [int(listid) for listid in c.readlines()]
                 if len(data) > 0:
                     logging.info("Loaded list from cache")
-                    return data[0]
+                    return int(data[0])
         
         lst = self.client.create_list(
             name=args.name,
@@ -133,7 +160,7 @@ class Kakashi:
         with open(cachepath, 'w+') as c:
             c.write(lst_id)
 
-        return lst_id
+        return int(lst_id)
 
     def add_member(self, user_id, lst_id):
         member = self.client.add_list_member(
